@@ -20,7 +20,7 @@ API_PATH = "/client/res/data_smscdr.php"
 
 PHPSESSID = os.getenv("PHPSESSID", "PUT_YOUR_PHPSESSID_HERE")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "PUT_TELEGRAM_BOT_TOKEN_HERE")
-CHAT_IDS = os.getenv("CHAT_IDS", "-1001234567890").split(",")
+CHAT_IDS = os.getenv("CHAT_IDS", "-1003405109562").split(",")
 
 CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "10"))
 STATE_FILE = "last_seen.json"
