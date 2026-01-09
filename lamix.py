@@ -3,29 +3,28 @@
 
 """
 NumberPanel OTP Bot
-Mode: ONLY LATEST (NEW ONE) OTP
-Website: http://51.89.99.105/NumberPanel
+Mode: FORWARD LAST 3 OTP ONLY
+Group: -1003405109562
 """
 
-import os
 import time
 import json
 import re
 import requests
 from datetime import datetime
 
-# ================= CONFIG =================
-BASE_URL = os.getenv("BASE_URL", "http://51.89.99.105/NumberPanel").rstrip("/")
+# ================== CONFIG ==================
+BASE_URL = "http://51.89.99.105/NumberPanel"
 API_PATH = "/client/res/data_smscdr.php"
 
-PHPSESSID = os.getenv("PHPSESSID", "PUT_YOUR_PHPSESSID_HERE")
-BOT_TOKEN = os.getenv("BOT_TOKEN", "PUT_TELEGRAM_BOT_TOKEN_HERE")
-CHAT_IDS = os.getenv("CHAT_IDS", "-1003405109562").split(",")
+PHPSESSID = "PASTE_YOUR_PHPSESSID_HERE"   # 🔐 fresh session
+BOT_TOKEN = "PASTE_YOUR_BOT_TOKEN_HERE"   # 🤖 bot token
 
-CHECK_INTERVAL = int(os.getenv("CHECK_INTERVAL", "10"))
+CHAT_ID = "-1003405109562"                # ✅ your GC
+CHECK_INTERVAL = 10                       # seconds
 STATE_FILE = "last_seen.json"
 
-# ================= HEADERS =================
+# ================== HEADERS ==================
 HEADERS = {
     "Accept": "application/json, text/javascript, */*; q=0.01",
     "X-Requested-With": "XMLHttpRequest",
@@ -33,44 +32,50 @@ HEADERS = {
     "Referer": f"{BASE_URL}/client/SMSDashboard",
 }
 
-# ================= SESSION =================
+# ================== SESSION ==================
 session = requests.Session()
 session.cookies.set("PHPSESSID", PHPSESSID)
 
-# ================= HELPERS =================
-def load_last_seen():
-    if os.path.exists(STATE_FILE):
-        try:
-            return json.load(open(STATE_FILE))
-        except Exception:
-            return {}
-    return {}
+# ================== HELPERS ==================
+def load_state():
+    try:
+        return json.load(open(STATE_FILE))
+    except Exception:
+        return {"sent_keys": []}
 
-def save_last_seen(data):
-    json.dump(data, open(STATE_FILE, "w"))
+def save_state(state):
+    json.dump(state, open(STATE_FILE, "w"))
 
 def extract_otp(text):
+    """
+    Supports:
+    123456
+    589-837
+    589 837
+    """
     if not text:
         return None
-    m = re.search(r"\b(\d{4,8})\b", text)
+    m = re.search(r"\b(\d{3,4}[-\s]?\d{3,4})\b", text)
     return m.group(1) if m else None
 
-def send_telegram(text):
+def send_telegram(message):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    for chat_id in CHAT_IDS:
-        payload = {
-            "chat_id": chat_id.strip(),
-            "text": text,
-            "parse_mode": "Markdown",
-            "disable_web_page_preview": True
-        }
-        requests.post(url, json=payload, timeout=10)
+    payload = {
+        "chat_id": CHAT_ID,
+        "text": message,
+        "parse_mode": "Markdown",
+        "disable_web_page_preview": True
+    }
+    r = requests.post(url, json=payload, timeout=10)
+    print("📤 Telegram:", r.status_code)
 
-# ================= START =================
+# ================== START ==================
 print("🚀 NumberPanel OTP Bot Started")
-print("⚡ Mode: ONLY LATEST OTP")
+print("⚡ Mode: LAST 3 OTP ONLY")
+print("📢 Group:", CHAT_ID)
 
-last_seen = load_last_seen()
+state = load_state()
+sent_keys = state.get("sent_keys", [])
 
 while True:
     try:
@@ -78,7 +83,7 @@ while True:
             "fdate1": "2025-01-01 00:00:00",
             "fdate2": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "iDisplayStart": 0,
-            "iDisplayLength": 1,  # 🔥 ONLY LATEST ROW
+            "iDisplayLength": 3,  # 🔥 LAST 3 ONLY
             "sEcho": 1,
             "_": int(time.time() * 1000),
         }
@@ -91,6 +96,7 @@ while True:
         )
 
         if r.status_code != 200:
+            print("❌ API error:", r.status_code)
             time.sleep(CHECK_INTERVAL)
             continue
 
@@ -101,32 +107,37 @@ while True:
             time.sleep(CHECK_INTERVAL)
             continue
 
-        # ✅ ONLY FIRST (LATEST) SMS
-        ts, pool, number, service, message = rows[0][:5]
-        key = f"{number}_{ts}"
+        # 🔁 Process from OLDEST → NEWEST (clean order)
+        rows.reverse()
 
-        if last_seen.get("last_key") == key:
-            time.sleep(CHECK_INTERVAL)
-            continue
+        for row in rows:
+            ts, pool, number, service, message = row[:5]
+            key = f"{number}_{ts}"
 
-        otp = extract_otp(message)
+            if key in sent_keys:
+                continue
 
-        if otp:
-            msg = (
-                f"🔐 *NEW OTP RECEIVED*\n"
-                f"━━━━━━━━━━━━━━\n"
-                f"🕒 `{ts}`\n"
-                f"📞 `{number}`\n"
-                f"📲 `{service}`\n"
-                f"🔢 *OTP:* `{otp}`\n"
-            )
-            send_telegram(msg)
+            otp = extract_otp(message)
+            print("🧾 SMS:", message, "| OTP:", otp)
 
-        # 🔒 Mark as processed (even if OTP not found)
-        last_seen = {"last_key": key}
-        save_last_seen(last_seen)
+            if otp:
+                text = (
+                    f"🔐 *NEW OTP RECEIVED*\n"
+                    f"━━━━━━━━━━━━━━\n"
+                    f"🕒 `{ts}`\n"
+                    f"📞 `{number}`\n"
+                    f"📲 `{service}`\n"
+                    f"🔢 *OTP:* `{otp}`\n"
+                )
+                send_telegram(text)
+
+            sent_keys.append(key)
+
+        # 🔒 keep memory small (last 10 only)
+        sent_keys = sent_keys[-10:]
+        save_state({"sent_keys": sent_keys})
 
     except Exception as e:
-        print("❌ Error:", e)
+        print("💥 ERROR:", e)
 
     time.sleep(CHECK_INTERVAL)
