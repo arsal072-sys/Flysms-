@@ -1,26 +1,26 @@
 {
-  "name": "INTS OTP Forwarder",
-  "description": "Live-only OTP Forwarder Telegram Bot",
-  "stack": "heroku-22",
+  "name": "RoxySMS Live OTP Bot",
+  "description": "Only LIVE OTP forwarder (RoxySMS) with Telegram",
+  "repository": "https://github.com/your-repo/roxysms-bot",
+  "keywords": ["telegram", "otp", "sms", "roxysms"],
+  "env": {
+    "BOT_TOKEN": {
+      "description": "Telegram Bot Token",
+      "required": true
+    },
+    "CHAT_ID": {
+      "description": "Telegram Group/Channel ID",
+      "required": true
+    },
+    "PHPSESSID": {
+      "description": "RoxySMS PHP Session ID",
+      "required": true
+    }
+  },
   "formation": {
     "worker": {
       "quantity": 1,
       "size": "basic"
-    }
-  },
-  "env": {
-    "BOT_TOKEN": {
-      "description": "Telegram Bot Token"
-    },
-    "CHAT_IDS": {
-      "description": "Telegram Chat IDs (comma separated)"
-    },
-    "PHPSESSID": {
-      "description": "INTS PHP Session ID"
-    },
-    "POLL_INTERVAL": {
-      "description": "Polling interval in seconds",
-      "value": "15"
     }
   }
 }
