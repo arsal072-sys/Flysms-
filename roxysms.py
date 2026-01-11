@@ -1,3 +1,4 @@
+import os
 import requests
 import time
 import re
@@ -10,14 +11,11 @@ from pathlib import Path
 
 AJAX_URL = "http://www.roxysms.net/agent/res/data_smscdr.php"
 
-BOT_TOKEN = "PUT_YOUR_BOT_TOKEN_HERE"
-CHAT_ID = "-100XXXXXXXXXX"
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
+PHPSESSID = os.getenv("PHPSESSID")
 
-COOKIES = {
-    "PHPSESSID": "PUT_YOUR_PHPSESSID_HERE"
-}
-
-CHECK_INTERVAL = 12  # seconds
+CHECK_INTERVAL = 12
 STATE_FILE = "state.json"
 
 SUPPORT_URL = "https://t.me/botcasx"
@@ -38,7 +36,9 @@ logging.basicConfig(
 
 session = requests.Session()
 session.headers.update(HEADERS)
-session.cookies.update(COOKIES)
+
+if PHPSESSID:
+    session.cookies.set("PHPSESSID", PHPSESSID)
 
 last_seen_time = None
 cookie_alert_sent = False
@@ -74,7 +74,7 @@ def build_params():
         "fdate1": f"{today} 00:00:00",
         "fdate2": f"{today} 23:59:59",
         "frange": "",
-        warning := "",
+        "fclient": "",
         "fnum": "",
         "fcli": "",
         "fg": 0,
@@ -86,6 +86,9 @@ def build_params():
     }
 
 def send_telegram(text):
+    if not BOT_TOKEN or not CHAT_ID:
+        return
+
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": CHAT_ID,
@@ -96,7 +99,7 @@ def send_telegram(text):
             "inline_keyboard": [
                 [
                     {"text": "🆘 Support", "url": SUPPORT_URL},
-                    {"text": "📲 Numbers", "url": NUMBERS_URL},
+                    {"text": "📲 Numbers", "url": NUMBERS_URL}
                 ]
             ]
         }
@@ -111,7 +114,7 @@ def notify_cookie_expired():
     send_telegram(
         "⚠️ *COOKIE EXPIRED*\n\n"
         "RoxySMS session logout ho gaya hai.\n"
-        "Please naya `PHPSESSID` update karo.\n\n"
+        "Heroku config vars me naya `PHPSESSID` set karo.\n\n"
         "⚡ *CYBER CORE OTP*"
     )
 
@@ -119,7 +122,6 @@ def format_message(row):
     date = row[0]
     route_raw = row[1]
     number = row[2]
-    service = row[3]
     message = row[4]
 
     if not number.startswith("+"):
@@ -187,11 +189,11 @@ def fetch_latest_sms():
 # ============ START =======================
 
 load_state()
-logging.info("🚀 RoxySMS Bot Started (ONLY LIVE MODE)")
+logging.info("🚀 RoxySMS Bot Started (ONLY LIVE MODE – ENV)")
 
 while True:
     try:
         fetch_latest_sms()
-    except Exception as e:
+    except Exception:
         logging.exception("ERROR")
     time.sleep(CHECK_INTERVAL)
