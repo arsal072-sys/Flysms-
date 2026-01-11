@@ -1,167 +1,197 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-"""
-NumberPanel OTP Bot
-Mode: LAST 3 OTP ONLY
-sesskey + PHPSESSID FIXED
-Heroku / VPS Compatible
-"""
-
-import time
-import json
-import re
 import requests
+import time
+import re
+import logging
+import json
+import os
 from datetime import datetime
 
 # ================= CONFIG =================
-API_URL = "http://51.89.99.105/NumberPanel/client/res/data_smscdr.php"
 
-# 🔐 NEW VALUES (as provided by you)
-PHPSESSID = "oktoq8i2e1ebb5mjtp5nkumprd"
-SESSKEY   = "Q05RR0FPT0pBVQ=="
+AJAX_URL = "http://www.roxysms.net/agent/res/data_smscdr.php"
 
-BOT_TOKEN = "PASTE_YOUR_TELEGRAM_BOT_TOKEN"
-CHAT_ID   = "-1003405109562"
+# 🔐 ENV VARIABLES (Heroku Config Vars)
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
+PHPSESSID = os.getenv("PHPSESSID")
 
-CHECK_INTERVAL = 12
-STATE_FILE = "state.json"
+if not BOT_TOKEN or not CHAT_ID or not PHPSESSID:
+    raise RuntimeError("Missing required ENV vars: BOT_TOKEN / CHAT_ID / PHPSESSID")
 
-# ================= HEADERS =================
-HEADERS = {
-    "Accept": "application/json, text/javascript, */*; q=0.01",
-    "X-Requested-With": "XMLHttpRequest",
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    ),
-    "Referer": "http://51.89.99.105/NumberPanel/client/SMSDashboard",
-    "Accept-Encoding": "identity",
-    "Connection": "close",
+COOKIES = {
+    "PHPSESSID": PHPSESSID
 }
 
-# ================= HELPERS =================
-def load_state():
-    try:
-        return json.load(open(STATE_FILE))
-    except Exception:
-        return {"sent": []}
+HEADERS = {
+    "User-Agent": "Mozilla/5.0",
+    "X-Requested-With": "XMLHttpRequest",
+    "Accept": "application/json, text/javascript, */*; q=0.01"
+}
 
-def save_state(data):
-    json.dump(data, open(STATE_FILE, "w"))
+CHECK_INTERVAL = 5  # seconds
+STATE_FILE = "state.json"
+
+SUPPORT_URL = "https://t.me/botcasx"
+NUMBERS_URL = "https://t.me/CyberOTPCore"
+
+# =========================================
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler("roxysms.log")
+    ]
+)
+
+session = requests.Session()
+session.headers.update(HEADERS)
+session.cookies.update(COOKIES)
+
+# ================= STATE =================
+
+def load_state():
+    if os.path.exists(STATE_FILE):
+        try:
+            with open(STATE_FILE, "r") as f:
+                data = json.load(f)
+                return datetime.strptime(data["last_seen_time"], "%Y-%m-%d %H:%M:%S")
+        except Exception:
+            return None
+    return None
+
+
+def save_state(dt):
+    with open(STATE_FILE, "w") as f:
+        json.dump(
+            {"last_seen_time": dt.strftime("%Y-%m-%d %H:%M:%S")},
+            f
+        )
+
+
+last_seen_time = load_state()
+
+# ================= HELPERS =================
 
 def extract_otp(text):
-    """
-    Supports:
-    123456
-    589-837
-    589 837
-    """
     if not text:
-        return None
-    m = re.search(r"\b(\d{3,4}[-\s]?\d{3,4})\b", text)
-    return m.group(1) if m else None
+        return "N/A"
+    m = re.search(r"\b(\d{4,8})\b", text)
+    return m.group(1) if m else "N/A"
 
-def send_telegram(msg):
-    r = requests.post(
-        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-        json={
-            "chat_id": CHAT_ID,
-            "text": msg,
-            "parse_mode": "Markdown",
-            "disable_web_page_preview": True
-        },
-        timeout=10
+
+def build_params(limit=5):
+    today = datetime.now().strftime("%Y-%m-%d")
+    return {
+        "fdate1": f"{today} 00:00:00",
+        "fdate2": f"{today} 23:59:59",
+        "frange": "",
+        "fclient": "",
+        "fnum": "",
+        "fcli": "",
+        "fgdate": "",
+        "fgmonth": "",
+        "fgrange": "",
+        "fgclient": "",
+        "fgnumber": "",
+        "fgcli": "",
+        "fg": 0,
+        "sEcho": 1,
+        "iColumns": 7,
+        "iDisplayStart": 0,
+        "iDisplayLength": limit,
+        "iSortCol_0": 0,
+        "sSortDir_0": "desc",
+        "iSortingCols": 1
+    }
+
+
+def format_message(row):
+    date = row[0]
+    raw_route = str(row[1]) if row[1] else "Unknown"
+    number = str(row[2]) if row[2] else "N/A"
+    raw_message = row[4]
+
+    # ✅ Country only
+    country = raw_route.split("-")[0].split("_")[0]
+    message = raw_message.strip() if raw_message else "Message not provided"
+
+    if not number.startswith("+"):
+        number = "+" + number
+
+    otp = extract_otp(message)
+
+    return (
+        "📩 *LIVE SMS RECEIVED*\n\n"
+        f"📞 *Number:* `{number}`\n"
+        f"🔢 *OTP:* 🔥 `{otp}` 🔥\n"
+        f"🌍 *Country:* {country}\n"
+        f"🕒 *Time:* {date}\n\n"
+        f"💬 *SMS:*\n{message}\n\n"
+        "⚡ *CYBER CORE OTP*"
     )
-    print("📤 Telegram:", r.status_code)
 
-# ================= START =================
-print("🚀 NumberPanel OTP Bot Started")
-print("⚡ Mode: LAST 3 OTP ONLY")
-print("📢 Group:", CHAT_ID)
 
-state = load_state()
-sent = state["sent"]
+def send_telegram(text):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": CHAT_ID,
+        "text": text,
+        "parse_mode": "Markdown",
+        "disable_web_page_preview": True,
+        "reply_markup": {
+            "inline_keyboard": [
+                [
+                    {"text": "🆘 Support", "url": SUPPORT_URL},
+                    {"text": "📲 Numbers", "url": NUMBERS_URL}
+                ]
+            ]
+        }
+    }
+    r = requests.post(url, json=payload, timeout=15)
+    if not r.ok:
+        logging.error("Telegram Error: %s", r.text)
+
+# ================= CORE (ONLY LIVE) =================
+
+def fetch_latest_sms():
+    global last_seen_time
+
+    r = session.get(AJAX_URL, params=build_params(), timeout=20)
+    data = r.json()
+
+    rows = data.get("aaData", [])
+    if not rows or not isinstance(rows[0], list):
+        return
+
+    for row in rows:
+        try:
+            sms_time = datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S")
+        except Exception:
+            continue
+
+        if last_seen_time is None:
+            last_seen_time = sms_time
+            save_state(last_seen_time)
+            logging.info("LIVE baseline set: %s", last_seen_time)
+            return
+
+        if sms_time > last_seen_time:
+            last_seen_time = sms_time
+            save_state(last_seen_time)
+            send_telegram(format_message(row))
+            logging.info("LIVE OTP sent")
+            return
+
+# ================= LOOP =================
+
+logging.info("🚀 RoxySMS Bot Started (ONLY LIVE MODE)")
 
 while True:
     try:
-        cookies = {
-            "PHPSESSID": PHPSESSID
-        }
-
-        params = {
-            "sesskey": SESSKEY,                    # 🔥 REQUIRED
-            "fdate1": "2026-01-09 00:00:00",
-            "fdate2": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "iDisplayStart": 0,
-            "iDisplayLength": 3,                  # 🔥 LAST 3 ONLY
-            "sEcho": 1,
-            "_": int(time.time() * 1000),
-        }
-
-        r = requests.get(
-            API_URL,
-            headers=HEADERS,
-            cookies=cookies,
-            params=params,
-            timeout=15
-        )
-
-        if not r.text or not r.text.strip():
-            print("⚠️ Empty response")
-            time.sleep(CHECK_INTERVAL)
-            continue
-
-        if "login" in r.text.lower():
-            print("🔐 Session expired (login page detected)")
-            time.sleep(60)
-            continue
-
-        try:
-            data = r.json()
-        except Exception:
-            print("⚠️ JSON parse failed")
-            print(r.text[:200])
-            time.sleep(CHECK_INTERVAL)
-            continue
-
-        rows = data.get("aaData", [])
-        if not rows:
-            time.sleep(CHECK_INTERVAL)
-            continue
-
-        # Oldest → Newest (clean order)
-        rows.reverse()
-
-        for row in rows:
-            ts, pool, number, service, message = row[:5]
-            key = f"{number}_{ts}"
-
-            if key in sent:
-                continue
-
-            otp = extract_otp(message)
-            print("🧾 SMS:", message)
-
-            if otp:
-                msg = (
-                    f"🔐 *NEW OTP RECEIVED*\n"
-                    f"━━━━━━━━━━━━━━\n"
-                    f"🕒 `{ts}`\n"
-                    f"📞 `{number}`\n"
-                    f"📲 `{service}`\n"
-                    f"🔢 *OTP:* `{otp}`\n"
-                )
-                send_telegram(msg)
-
-            sent.append(key)
-
-        # keep memory small
-        sent = sent[-10:]
-        save_state({"sent": sent})
-
-    except Exception as e:
-        print("💥 ERROR:", e)
-
+        fetch_latest_sms()
+    except Exception:
+        logging.exception("ERROR")
     time.sleep(CHECK_INTERVAL)
