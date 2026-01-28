@@ -14,12 +14,12 @@ import html
 AJAX_URL = "http://213.32.24.208/ints/client/res/data_smscdr.php"
 
 # Bot Configuration
-BOT_TOKEN = os.getenv("BOT_TOKEN") or "YOUR_BOT_TOKEN"
-CHAT_IDS = ["-1003559187782", "-1003316982194"]  # Dual chat support
+BOT_TOKEN = "7448362382:AAGzYcF4XH5cAOIOsrvJ6E9MXqjnmOdKs2o"
+CHAT_IDS = ["-1003559187782", "-1003316982194"]
 
 # Cookies - Update with current session
 COOKIES = {
-    "PHPSESSID": os.getenv("PHPSESSID") or "PUT_SESSION_HERE"
+    "PHPSESSID": "78e0116d55971a2c1c7106936db5fca4"
 }
 
 HEADERS = {
@@ -31,15 +31,16 @@ HEADERS = {
     "Connection": "keep-alive"
 }
 
-CHECK_INTERVAL = 10  # seconds
+CHECK_INTERVAL = 10
 STATE_FILE = "state.json"
 
-# Button URLs (from environment variables with defaults)
-DEVELOPER_URL = "https://t.me/botcasx"  # Fixed - Dev button
-NUMBERS_URL_1 = os.getenv("NUMBERS_URL_1", "https://t.me/CyberOTPCore")  # Button 1
-NUMBERS_URL_2 = os.getenv("NUMBERS_URL_2", "https://t.me/example2")      # Button 2
-SUPPORT_URL_1 = os.getenv("SUPPORT_URL_1", "https://t.me/example3")      # Button 4
-SUPPORT_URL_2 = os.getenv("SUPPORT_URL_2", "https://t.me/example4")      # Button 5
+# Button URLs
+DEVELOPER_URL = "https://t.me/botcasx"
+# Get from environment variables with better defaults
+NUMBERS_URL_1 = os.getenv("NUMBERS_URL_1", "https://t.me/CyberOTPCore")
+NUMBERS_URL_2 = os.getenv("NUMBERS_URL_2", "https://t.me/PremiumOTPService")
+SUPPORT_URL_1 = os.getenv("SUPPORT_URL_1", "https://t.me/OTPSupportGroup")
+SUPPORT_URL_2 = os.getenv("SUPPORT_URL_2", "https://t.me/OTPHelpDesk")
 
 # =========================================
 
@@ -48,6 +49,9 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(message)s",
     handlers=[logging.StreamHandler()]
 )
+
+# Suppress urllib3 warnings
+logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 session = requests.Session()
 session.headers.update(HEADERS)
@@ -203,12 +207,12 @@ def format_message(row):
         safe_service = html.escape(str(service))
         safe_country = html.escape(str(country))
         safe_date = html.escape(str(date))
+        
+        # Format message - use newlines instead of <br> tags
+        # Telegram HTML doesn't support <br>, use literal newlines
         safe_message = html.escape(str(message))
         
-        # Replace newlines with HTML line breaks for message
-        safe_message = safe_message.replace('\n', '<br>')
-        
-        # Format message as HTML
+        # Format as HTML with newlines
         formatted = (
             "💎 <b>PREMIUM OTP ALERT</b> 💎\n"
             "<i>Instant • Secure • Verified</i>\n"
@@ -230,15 +234,9 @@ def format_message(row):
         logging.error(f"Error formatting message: {e}")
         return None
 
-def send_telegram(text, chat_id):
-    """Send message to specific Telegram chat"""
-    if not text:
-        return
-    
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    
-    # Create inline keyboard with 5 buttons
-    reply_markup = {
+def create_keyboard():
+    """Create inline keyboard with 5 buttons"""
+    return {
         "inline_keyboard": [
             # First row: 3 buttons
             [
@@ -253,25 +251,33 @@ def send_telegram(text, chat_id):
             ]
         ]
     }
+
+def send_telegram(text, chat_id):
+    """Send message to specific Telegram chat"""
+    if not text:
+        return False
+    
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     
     payload = {
         "chat_id": chat_id,
         "text": text,
-        "parse_mode": "HTML",  # Using HTML formatting
+        "parse_mode": "HTML",
         "disable_web_page_preview": True,
-        "reply_markup": reply_markup
+        "reply_markup": create_keyboard()
     }
     
     try:
         response = requests.post(url, json=payload, timeout=15)
         if response.status_code == 200:
-            logging.info(f"Message sent to chat {chat_id}")
+            logging.info(f"✓ Message sent to chat {chat_id}")
             return True
         else:
-            logging.error(f"Telegram API error for chat {chat_id}: {response.status_code} - {response.text}")
+            error_data = response.json()
+            logging.error(f"✗ Telegram API error for chat {chat_id}: {error_data.get('description', 'Unknown error')}")
             return False
     except Exception as e:
-        logging.error(f"Error sending to Telegram (chat {chat_id}): {e}")
+        logging.error(f"✗ Error sending to Telegram (chat {chat_id}): {e}")
         return False
 
 # ================= CORE LOGIC =================
@@ -283,7 +289,9 @@ def fetch_latest_sms():
     try:
         params = build_payload()
         
-        logging.debug(f"Fetching data with params: {params}")
+        # Log request details
+        logging.info(f"🔍 Fetching data from {AJAX_URL}")
+        
         response = session.get(AJAX_URL, params=params, timeout=30)
         
         if response.status_code != 200:
@@ -294,17 +302,19 @@ def fetch_latest_sms():
             data = response.json()
         except json.JSONDecodeError as e:
             logging.error(f"JSON decode error: {e}")
-            logging.debug(f"Raw response: {response.text[:500]}")
+            logging.debug(f"Response text: {response.text[:200]}")
             return
         
         rows = data.get("aaData", [])
         if not rows:
-            logging.debug("No data found in response")
+            logging.info("No data found in response")
             return
+        
+        logging.info(f"Found {len(rows)} rows")
         
         # Filter valid rows
         valid_rows = []
-        for row in rows:
+        for idx, row in enumerate(rows):
             if not isinstance(row, list) or len(row) < 5:
                 continue
             
@@ -318,8 +328,9 @@ def fetch_latest_sms():
             
             valid_rows.append(row)
         
+        logging.info(f"Valid SMS rows: {len(valid_rows)}")
+        
         if not valid_rows:
-            logging.debug("No valid SMS rows found")
             return
         
         # Sort by date (newest first)
@@ -332,15 +343,19 @@ def fetch_latest_sms():
         newest = valid_rows[0]
         
         # Create unique ID
-        sms_id = f"{newest[0]}_{newest[2]}_{hash(newest[4][:100])}" if len(newest) > 4 else f"{newest[0]}_{newest[2]}"
+        sms_id = f"{newest[0]}_{newest[2]}_{hash(str(newest[4])[:50])}"
         
         # Check if already processed
         if STATE["last_uid"] == sms_id or sms_id in STATE.get("processed_ids", []):
+            logging.info("No new SMS found")
             return
+        
+        logging.info(f"📨 New SMS detected: {newest[2]} at {newest[0]}")
         
         # Format message
         formatted_msg = format_message(newest)
         if not formatted_msg:
+            logging.error("Failed to format message")
             return
         
         # Send to all chat IDs
@@ -348,9 +363,10 @@ def fetch_latest_sms():
         for chat_id in CHAT_IDS:
             if send_telegram(formatted_msg, chat_id):
                 success_count += 1
+                time.sleep(1)  # Small delay between sends
         
         if success_count > 0:
-            logging.info(f"New OTP sent to {success_count} chats for number: {newest[2]}")
+            logging.info(f"✅ OTP sent to {success_count} chats for {newest[2]}")
             
             # Update state
             STATE["last_uid"] = sms_id
@@ -358,55 +374,76 @@ def fetch_latest_sms():
             # Keep track of processed IDs
             processed_ids = STATE.get("processed_ids", [])
             processed_ids.append(sms_id)
-            if len(processed_ids) > 200:  # Increased limit
+            if len(processed_ids) > 200:
                 processed_ids = processed_ids[-200:]
             STATE["processed_ids"] = processed_ids
             
             save_state(STATE)
+        else:
+            logging.error("❌ Failed to send to all chats")
         
     except requests.RequestException as e:
         logging.error(f"Network error: {e}")
     except Exception as e:
-        logging.error(f"Unexpected error in fetch: {e}")
+        logging.error(f"Unexpected error: {e}")
         import traceback
         traceback.print_exc()
 
 # ================= MAIN =================
 
+def print_config():
+    """Print configuration details"""
+    logging.info("=" * 60)
+    logging.info("🚀 PREMIUM OTP BOT STARTED")
+    logging.info("=" * 60)
+    logging.info(f"Website URL: {AJAX_URL}")
+    logging.info(f"Chat IDs: {', '.join(CHAT_IDS)}")
+    logging.info(f"Check Interval: {CHECK_INTERVAL} seconds")
+    logging.info("=" * 60)
+    logging.info("Button Configuration:")
+    logging.info(f"1. 🧑‍💻 Dev: {DEVELOPER_URL}")
+    logging.info(f"2. 📱 Numbers 1: {NUMBERS_URL_1}")
+    logging.info(f"3. 📱 Numbers 2: {NUMBERS_URL_2}")
+    logging.info(f"4. 🆘 Support 1: {SUPPORT_URL_1}")
+    logging.info(f"5. 🆘 Support 2: {SUPPORT_URL_2}")
+    logging.info("=" * 60)
+    
+    # Check environment variables
+    env_vars = {
+        "NUMBERS_URL_2": NUMBERS_URL_2,
+        "SUPPORT_URL_1": SUPPORT_URL_1,
+        "SUPPORT_URL_2": SUPPORT_URL_2
+    }
+    
+    for var_name, value in env_vars.items():
+        if value and "example" not in value:
+            logging.info(f"✅ {var_name}: {value}")
+        else:
+            logging.warning(f"⚠️  {var_name} using default. Set with: heroku config:set {var_name}=YOUR_URL")
+
 def main():
     """Main function"""
-    logging.info("=" * 50)
-    logging.info("🚀 PREMIUM OTP BOT STARTED")
-    logging.info("=" * 50)
-    logging.info(f"Website: {AJAX_URL}")
-    logging.info(f"Chat IDs: {', '.join(CHAT_IDS)}")
-    logging.info(f"Check interval: {CHECK_INTERVAL} seconds")
-    logging.info(f"Developer: {DEVELOPER_URL}")
-    logging.info(f"Numbers 1: {NUMBERS_URL_1}")
-    logging.info(f"Numbers 2: {NUMBERS_URL_2}")
-    logging.info(f"Support 1: {SUPPORT_URL_1}")
-    logging.info(f"Support 2: {SUPPORT_URL_2}")
-    logging.info("=" * 50)
-    
-    # Test environment variables
-    env_vars = ["NUMBERS_URL_2", "SUPPORT_URL_1", "SUPPORT_URL_2"]
-    for var in env_vars:
-        value = os.getenv(var)
-        if value:
-            logging.info(f"{var}: {value}")
-        else:
-            logging.warning(f"{var} not set, using default")
+    print_config()
     
     # Main loop
+    error_count = 0
+    max_errors = 5
+    
     while True:
         try:
             fetch_latest_sms()
+            error_count = 0  # Reset error count on success
         except KeyboardInterrupt:
             logging.info("Bot stopped by user")
             break
         except Exception as e:
-            logging.error(f"Critical error in main loop: {e}")
-            time.sleep(30)  # Longer sleep on critical error
+            error_count += 1
+            logging.error(f"Error in main loop ({error_count}/{max_errors}): {e}")
+            
+            if error_count >= max_errors:
+                logging.error("Too many consecutive errors. Waiting 60 seconds before retry...")
+                time.sleep(60)
+                error_count = 0
         
         time.sleep(CHECK_INTERVAL)
 
