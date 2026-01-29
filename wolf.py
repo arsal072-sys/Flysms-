@@ -42,6 +42,9 @@ NUMBERS_URL_2 = os.getenv("NUMBERS_URL_2", "https://t.me/CyberOTPCore")
 SUPPORT_URL_1 = os.getenv("SUPPORT_URL_1", "https://t.me/+zu_E8bhN0WU5OTNl")
 SUPPORT_URL_2 = os.getenv("SUPPORT_URL_2", "https://t.me/CYBER_OTP1_CORE")
 
+# Mask phone number settings
+MASK_PHONE = os.getenv("MASK_PHONE", "true").lower() == "true"
+
 # =========================================
 
 logging.basicConfig(
@@ -78,6 +81,24 @@ def save_state(state):
 STATE = load_state()
 
 # ================= HELPERS =================
+
+def mask_number(number: str) -> str:
+    """Mask phone number showing first 3 and last 4 digits"""
+    if not number or len(number) < 8:
+        return number
+    
+    # Remove all non-digit characters
+    cleaned = re.sub(r'\D', '', number)
+    
+    if len(cleaned) < 7:
+        return cleaned  # Too short to mask
+    
+    # For international numbers like 4917655782838
+    # Format: 491***2838 (show first 3 and last 4 digits)
+    if len(cleaned) >= 7:
+        return f"{cleaned[:3]}***{cleaned[-4:]}"
+    
+    return number
 
 def extract_otp(text):
     """Extract OTP from SMS text"""
@@ -201,8 +222,14 @@ def format_message(row):
         # Extract OTP
         otp = extract_otp(message)
         
+        # Mask phone number if enabled
+        if MASK_PHONE:
+            display_number = mask_number(number)
+        else:
+            display_number = number
+        
         # Escape HTML special characters
-        safe_number = html.escape(str(number))
+        safe_number = html.escape(str(display_number))
         safe_otp = html.escape(str(otp))
         safe_service = html.escape(str(service))
         safe_country = html.escape(str(country))
@@ -399,6 +426,7 @@ def print_config():
     logging.info(f"Website URL: {AJAX_URL}")
     logging.info(f"Chat IDs: {', '.join(CHAT_IDS)}")
     logging.info(f"Check Interval: {CHECK_INTERVAL} seconds")
+    logging.info(f"Mask Phone Numbers: {MASK_PHONE}")
     logging.info("=" * 60)
     logging.info("Button Configuration:")
     logging.info(f"1. 🧑‍💻 Dev: {DEVELOPER_URL}")
@@ -412,14 +440,15 @@ def print_config():
     env_vars = {
         "NUMBERS_URL_2": NUMBERS_URL_2,
         "SUPPORT_URL_1": SUPPORT_URL_1,
-        "SUPPORT_URL_2": SUPPORT_URL_2
+        "SUPPORT_URL_2": SUPPORT_URL_2,
+        "MASK_PHONE": MASK_PHONE
     }
     
     for var_name, value in env_vars.items():
-        if value and "example" not in value:
+        if value and "example" not in str(value):
             logging.info(f"✅ {var_name}: {value}")
         else:
-            logging.warning(f"⚠️  {var_name} using default. Set with: heroku config:set {var_name}=YOUR_URL")
+            logging.warning(f"⚠️  {var_name} using default. Set with: heroku config:set {var_name}=YOUR_VALUE")
 
 def main():
     """Main function"""
