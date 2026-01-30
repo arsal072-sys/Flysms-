@@ -1,1 +1,1 @@
-worker: python fly.pu
+worker: python flysms.py
